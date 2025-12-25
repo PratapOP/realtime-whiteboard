@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Real-Time Collaborative Whiteboard</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px;
+    }
+
+    .header {
+      background: rgba(255, 255, 255, 0.95);
+      padding: 20px 30px;
+      border-radius: 15px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+      margin-bottom: 20px;
+      text-align: center;
+      width: 100%;
+      max-width: 1200px;
+    }
+
+    h1 {
+      color: #667eea;
+      font-size: 28px;
+      margin-bottom: 10px;
+    }
+
+    .user-info {
+      color: #666;
+      font-size: 14px;
+    }
+
+    .user-count {
+      display: inline-block;
+      background: #667eea;
+      color: white;
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-weight: bold;
+      margin-left: 5px;
+    }
+
+    .canvas-container {
+      background: white;
+      border-radius: 15px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+      padding: 20px;
+      width: 100%;
+      max-width: 1200px;
+    }
+
+    .toolbar {
+      display: flex;
+      gap: 15px;
+      margin-bottom: 15px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .tool-group {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+
+    label {
+      font-weight: 600;
+      color: #333;
+      font-size: 14px;
+    }
+
+    input[type="color"] {
+      width: 50px;
+      height: 40px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    }
+
+    input[type="range"] {
+      width: 120px;
+    }
+
+    button {
+      background: #667eea;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 14px;
+      transition: all 0.3s ease;
+      box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+    }
+
+    button:hover {
+      background: #5568d3;
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+    }
+
+    button:active {
+      transform: translateY(0);
+    }
+
+    #whiteboard {
+      border: 2px solid #e0e0e0;
+      border-radius: 10px;
+      cursor: crosshair;
+      display: block;
+      touch-action: none;
+      background: #fafafa;
+    }
+
+    .footer {
+      margin-top: 20px;
+      color: white;
+      text-align: center;
+      font-size: 14px;
+    }
+
+    @media (max-width: 768px) {
+      .toolbar {
+        justify-content: center;
+      }
+      
+      h1 {
+        font-size: 22px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>🎨 Real-Time Collaborative Whiteboard</h1>
+    <div class="user-info">
+      Active Users: <span class="user-count" id="userCount">0</span>
+    </div>
+  </div>
+
+  <div class="canvas-container">
+    <div class="toolbar">
+      <div class="tool-group">
+        <label for="colorPicker">Color:</label>
+        <input type="color" id="colorPicker" value="#000000">
+      </div>
+
+      <div class="tool-group">
+        <label for="brushSize">Size:</label>
+        <input type="range" id="brushSize" min="1" max="20" value="3">
+        <span id="sizeDisplay">3</span>
+      </div>
+
+      <button id="clearBtn">🗑️ Clear Canvas</button>
+    </div>
+
+    <canvas id="whiteboard" width="1160" height="600"></canvas>
+  </div>
+
+  <div class="footer">
+    Built with Canvas API, WebSocket & Node.js
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    // Initialize socket connection
+    const socket = io();
+
+    // Get canvas and context
+    const canvas = document.getElementById('whiteboard');
+    const ctx = canvas.getContext('2d');
+
+    // Get controls
+    const colorPicker = document.getElementById('colorPicker');
+    const brushSize = document.getElementById('brushSize');
+    const sizeDisplay = document.getElementById('sizeDisplay');
+    const clearBtn = document.getElementById('clearBtn');
+    const userCountEl = document.getElementById('userCount');
+
+    // Drawing state
+    let isDrawing = false;
+    let currentColor = '#000000';
+    let currentSize = 3;
+
+    // Update brush size display
+    brushSize.addEventListener('input', (e) => {
+      currentSize = e.target.value;
+      sizeDisplay.textContent = currentSize;
+    });
+
+    // Update color
+    colorPicker.addEventListener('change', (e) => {
+      currentColor = e.target.value;
+    });
+
+    // Clear canvas
+    clearBtn.addEventListener('click', () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      socket.emit('clearCanvas');
+    });
+
+    // Start drawing
+    canvas.addEventListener('mousedown', startDrawing);
+    canvas.addEventListener('touchstart', startDrawing);
+
+    // Draw
+    canvas.addEventListener('mousemove', draw);
+    canvas.addEventListener('touchmove', draw);
+
+    // Stop drawing
+    canvas.addEventListener('mouseup', stopDrawing);
+    canvas.addEventListener('mouseout', stopDrawing);
+    canvas.addEventListener('touchend', stopDrawing);
+
+    function startDrawing(e) {
+      isDrawing = true;
+      const pos = getMousePos(e);
+      ctx.beginPath();
+      ctx.moveTo(pos.x, pos.y);
+    }
+
+    function draw(e) {
+      if (!isDrawing) return;
+      e.preventDefault();
+
+      const pos = getMousePos(e);
+
+      // Draw locally
+      drawLine(pos.x, pos.y, currentColor, currentSize);
+
+      // Send to server
+      socket.emit('drawing', {
+        x: pos.x,
+        y: pos.y,
+        color: currentColor,
+        size: currentSize
+      });
+    }
+
+    function stopDrawing() {
+      isDrawing = false;
+      ctx.beginPath();
+    }
+
+    function getMousePos(e) {
+      const rect = canvas.getBoundingClientRect();
+      const clientX = e.clientX || (e.touches && e.touches[0].clientX);
+      const clientY = e.clientY || (e.touches && e.touches[0].clientY);
+      
+      return {
+        x: clientX - rect.left,
+        y: clientY - rect.top
+      };
+    }
+
+    function drawLine(x, y, color, size) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = size;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      
+      ctx.lineTo(x, y);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+    }
+
+    // Receive drawing from other users
+    socket.on('drawing', (data) => {
+      drawLine(data.x, data.y, data.color, data.size);
+    });
+
+    // Clear canvas from server
+    socket.on('clearCanvas', () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    });
+
+    // Update user count
+    socket.on('userCount', (count) => {
+      userCountEl.textContent = count;
+    });
+  </script>
+</body>
+</html>
