@@ -178,149 +178,133 @@
 
   <script src="/socket.io/socket.io.js"></script>
   <script>
-    // Initialize socket connection
     const socket = io();
-
-    // Get canvas and context
     const canvas = document.getElementById('whiteboard');
     const ctx = canvas.getContext('2d');
-
-    // Get controls
     const colorPicker = document.getElementById('colorPicker');
     const brushSize = document.getElementById('brushSize');
     const sizeDisplay = document.getElementById('sizeDisplay');
     const clearBtn = document.getElementById('clearBtn');
     const userCountEl = document.getElementById('userCount');
 
-    // Drawing state
     let isDrawing = false;
-    let currentColor = '#000000';
-    let currentSize = 3;
     let lastX = 0;
     let lastY = 0;
+    let currentColor = '#000000';
+    let currentSize = 3;
 
-    // Update brush size display
+    // Update controls
     brushSize.addEventListener('input', (e) => {
-      currentSize = e.target.value;
+      currentSize = parseInt(e.target.value);
       sizeDisplay.textContent = currentSize;
     });
 
-    // Update color
     colorPicker.addEventListener('change', (e) => {
       currentColor = e.target.value;
     });
 
-    // Clear canvas
     clearBtn.addEventListener('click', () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       socket.emit('clearCanvas');
     });
 
-    // Start drawing
-    canvas.addEventListener('mousedown', startDrawing);
-    canvas.addEventListener('touchstart', startDrawing);
-
-    // Draw
-    canvas.addEventListener('mousemove', draw);
-    canvas.addEventListener('touchmove', draw);
-
-    // Stop drawing
-    canvas.addEventListener('mouseup', stopDrawing);
-    canvas.addEventListener('mouseout', stopDrawing);
-    canvas.addEventListener('touchend', stopDrawing);
-
-    function startDrawing(e) {
+    // Mouse events
+    canvas.addEventListener('mousedown', (e) => {
       isDrawing = true;
-      const pos = getMousePos(e);
-      lastX = pos.x;
-      lastY = pos.y;
+      const rect = canvas.getBoundingClientRect();
+      lastX = e.clientX - rect.left;
+      lastY = e.clientY - rect.top;
+    });
 
-      // Send start point to server
-      socket.emit('drawStart', {
-        x: pos.x,
-        y: pos.y,
-        color: currentColor,
-        size: currentSize
-      });
-    }
-
-    function draw(e) {
+    canvas.addEventListener('mousemove', (e) => {
       if (!isDrawing) return;
-      e.preventDefault();
-
-      const pos = getMousePos(e);
+      
+      const rect = canvas.getBoundingClientRect();
+      const currentX = e.clientX - rect.left;
+      const currentY = e.clientY - rect.top;
 
       // Draw locally
-      drawLineBetween(lastX, lastY, pos.x, pos.y, currentColor, currentSize);
+      draw(lastX, lastY, currentX, currentY, currentColor, currentSize);
 
       // Send to server
       socket.emit('drawing', {
         x0: lastX,
         y0: lastY,
-        x1: pos.x,
-        y1: pos.y,
+        x1: currentX,
+        y1: currentY,
         color: currentColor,
         size: currentSize
       });
 
-      lastX = pos.x;
-      lastY = pos.y;
-    }
+      lastX = currentX;
+      lastY = currentY;
+    });
 
-    function stopDrawing() {
-      if (isDrawing) {
-        socket.emit('drawEnd');
-      }
+    canvas.addEventListener('mouseup', () => {
       isDrawing = false;
-    }
+    });
 
-    function getMousePos(e) {
+    canvas.addEventListener('mouseout', () => {
+      isDrawing = false;
+    });
+
+    // Touch events
+    canvas.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      isDrawing = true;
       const rect = canvas.getBoundingClientRect();
-      const clientX = e.clientX || (e.touches && e.touches[0].clientX);
-      const clientY = e.clientY || (e.touches && e.touches[0].clientY);
-      
-      return {
-        x: clientX - rect.left,
-        y: clientY - rect.top
-      };
-    }
+      const touch = e.touches[0];
+      lastX = touch.clientX - rect.left;
+      lastY = touch.clientY - rect.top;
+    });
 
-    function drawLineBetween(x0, y0, x1, y1, color, size) {
+    canvas.addEventListener('touchmove', (e) => {
+      e.preventDefault();
+      if (!isDrawing) return;
+      
+      const rect = canvas.getBoundingClientRect();
+      const touch = e.touches[0];
+      const currentX = touch.clientX - rect.left;
+      const currentY = touch.clientY - rect.top;
+
+      draw(lastX, lastY, currentX, currentY, currentColor, currentSize);
+
+      socket.emit('drawing', {
+        x0: lastX,
+        y0: lastY,
+        x1: currentX,
+        y1: currentY,
+        color: currentColor,
+        size: currentSize
+      });
+
+      lastX = currentX;
+      lastY = currentY;
+    });
+
+    canvas.addEventListener('touchend', () => {
+      isDrawing = false;
+    });
+
+    // Draw function
+    function draw(x0, y0, x1, y1, color, size) {
+      ctx.beginPath();
+      ctx.moveTo(x0, y0);
+      ctx.lineTo(x1, y1);
       ctx.strokeStyle = color;
       ctx.lineWidth = size;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
-      
-      ctx.beginPath();
-      ctx.moveTo(x0, y0);
-      ctx.lineTo(x1, y1);
       ctx.stroke();
+      ctx.closePath();
     }
 
-    // Remote drawing state for other users
-    let remoteDrawing = {};
-
-    // Receive draw start from other users
-    socket.on('drawStart', (data) => {
-      remoteDrawing[data.userId] = {
-        lastX: data.x,
-        lastY: data.y,
-        color: data.color,
-        size: data.size
-      };
-    });
-
-    // Receive drawing from other users
+    // Receive drawing from server
     socket.on('drawing', (data) => {
-      drawLineBetween(data.x0, data.y0, data.x1, data.y1, data.color, data.size);
+      draw(data.x0, data.y0, data.x1, data.y1, data.color, data.size);
     });
 
-    // Receive draw end from other users
-    socket.on('drawEnd', (data) => {
-      delete remoteDrawing[data.userId];
-    });
-
-    // Clear canvas from server
+    // Clear canvas
     socket.on('clearCanvas', () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
     });

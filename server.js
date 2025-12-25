@@ -17,25 +17,15 @@ io.on('connection', (socket) => {
   // Broadcast user count to all clients
   io.emit('userCount', activeUsers);
 
-  // Listen for draw start
-  socket.on('drawStart', (data) => {
-    socket.broadcast.emit('drawStart', { ...data, userId: socket.id });
-  });
-
   // Listen for drawing data from client
   socket.on('drawing', (data) => {
-    // Broadcast drawing to all other clients
-    socket.broadcast.emit('drawing', data);
-  });
-
-  // Listen for draw end
-  socket.on('drawEnd', () => {
-    socket.broadcast.emit('drawEnd', { userId: socket.id });
+    // Broadcast drawing to all other clients INCLUDING sender
+    io.emit('drawing', data);
   });
 
   // Listen for clear canvas event
   socket.on('clearCanvas', () => {
-    socket.broadcast.emit('clearCanvas');
+    io.emit('clearCanvas');
   });
 
   // Handle disconnection
