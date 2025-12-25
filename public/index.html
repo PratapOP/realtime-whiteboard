@@ -196,6 +196,8 @@
     let isDrawing = false;
     let currentColor = '#000000';
     let currentSize = 3;
+    let lastX = 0;
+    let lastY = 0;
 
     // Update brush size display
     brushSize.addEventListener('input', (e) => {
@@ -230,8 +232,16 @@
     function startDrawing(e) {
       isDrawing = true;
       const pos = getMousePos(e);
-      ctx.beginPath();
-      ctx.moveTo(pos.x, pos.y);
+      lastX = pos.x;
+      lastY = pos.y;
+
+      // Send start point to server
+      socket.emit('drawStart', {
+        x: pos.x,
+        y: pos.y,
+        color: currentColor,
+        size: currentSize
+      });
     }
 
     function draw(e) {
@@ -241,20 +251,27 @@
       const pos = getMousePos(e);
 
       // Draw locally
-      drawLine(pos.x, pos.y, currentColor, currentSize);
+      drawLineBetween(lastX, lastY, pos.x, pos.y, currentColor, currentSize);
 
       // Send to server
       socket.emit('drawing', {
-        x: pos.x,
-        y: pos.y,
+        x0: lastX,
+        y0: lastY,
+        x1: pos.x,
+        y1: pos.y,
         color: currentColor,
         size: currentSize
       });
+
+      lastX = pos.x;
+      lastY = pos.y;
     }
 
     function stopDrawing() {
+      if (isDrawing) {
+        socket.emit('drawEnd');
+      }
       isDrawing = false;
-      ctx.beginPath();
     }
 
     function getMousePos(e) {
@@ -268,21 +285,39 @@
       };
     }
 
-    function drawLine(x, y, color, size) {
+    function drawLineBetween(x0, y0, x1, y1, color, size) {
       ctx.strokeStyle = color;
       ctx.lineWidth = size;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
       
-      ctx.lineTo(x, y);
-      ctx.stroke();
       ctx.beginPath();
-      ctx.moveTo(x, y);
+      ctx.moveTo(x0, y0);
+      ctx.lineTo(x1, y1);
+      ctx.stroke();
     }
+
+    // Remote drawing state for other users
+    let remoteDrawing = {};
+
+    // Receive draw start from other users
+    socket.on('drawStart', (data) => {
+      remoteDrawing[data.userId] = {
+        lastX: data.x,
+        lastY: data.y,
+        color: data.color,
+        size: data.size
+      };
+    });
 
     // Receive drawing from other users
     socket.on('drawing', (data) => {
-      drawLine(data.x, data.y, data.color, data.size);
+      drawLineBetween(data.x0, data.y0, data.x1, data.y1, data.color, data.size);
+    });
+
+    // Receive draw end from other users
+    socket.on('drawEnd', (data) => {
+      delete remoteDrawing[data.userId];
     });
 
     // Clear canvas from server
